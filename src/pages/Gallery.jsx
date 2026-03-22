@@ -5,23 +5,40 @@ import gsap from 'gsap';
 const Gallery = ({ images }) => {
   const [selectedImage, setSelectedImage] = useState(null);
   const [isPaused, setIsPaused] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
   const scrollContainerRef = useRef(null);
   const animationRef = useRef(null);
   const imageRefs = useRef([]);
 
+  // Check for mobile view
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
   // Duplicate images for seamless infinite scroll
   const duplicatedImages = [...images, ...images, ...images];
 
+  // Auto-scroll effect (modified to work with drag)
   useEffect(() => {
     const container = scrollContainerRef.current;
-    if (!container || isPaused) return;
+    if (!container || isPaused || isDragging) return;
 
     const scrollWidth = container.scrollWidth / 3; // Width of one set of images
     let scrollPosition = container.scrollLeft;
 
     const animate = () => {
-      if (!isPaused && container) {
-        scrollPosition += 1; // Scroll speed
+      if (!isPaused && !isDragging && container) {
+        scrollPosition += 0.5; // Scroll speed (reduced slightly for better UX)
         if (scrollPosition >= scrollWidth * 2) {
           scrollPosition = scrollWidth;
         }
@@ -37,10 +54,51 @@ const Gallery = ({ images }) => {
         cancelAnimationFrame(animationRef.current);
       }
     };
-  }, [isPaused]);
+  }, [isPaused, isDragging]);
 
-  // Handle mouse enter/pause
+  // Drag handlers
+  const handleDragStart = (e) => {
+    e.preventDefault();
+    setIsDragging(true);
+    setIsPaused(true);
+    
+    const container = scrollContainerRef.current;
+    const clientX = e.type === 'mousedown' ? e.clientX : e.touches[0].clientX;
+    
+    setStartX(clientX - container.offsetLeft);
+    setScrollLeft(container.scrollLeft);
+    
+    // Change cursor
+    container.style.cursor = 'grabbing';
+    container.style.userSelect = 'none';
+  };
+
+  const handleDragMove = (e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    
+    const container = scrollContainerRef.current;
+    const clientX = e.type === 'mousemove' ? e.clientX : e.touches[0].clientX;
+    
+    const x = clientX - container.offsetLeft;
+    const walk = (x - startX) * 2; // Scroll speed multiplier
+    container.scrollLeft = scrollLeft - walk;
+  };
+
+  const handleDragEnd = () => {
+    if (!isDragging) return;
+    
+    const container = scrollContainerRef.current;
+    setIsDragging(false);
+    
+    // Reset cursor
+    container.style.cursor = 'grab';
+    container.style.userSelect = 'auto';
+  };
+
+  // Mouse enter handlers (modified to work with drag)
   const handleMouseEnter = (index) => {
+    if (isDragging) return; // Don't trigger hover effects while dragging
     setIsPaused(true);
     
     // Highlight the hovered image
@@ -65,8 +123,8 @@ const Gallery = ({ images }) => {
     });
   };
 
-  // Handle mouse leave
   const handleMouseLeave = (index) => {
+    if (isDragging) return; // Don't reset hover effects while dragging
     setIsPaused(false);
 
     // Reset all images
@@ -84,12 +142,13 @@ const Gallery = ({ images }) => {
     });
   };
 
-  // Handle image click
-  const handleImageClick = (image) => {
-    setSelectedImage(image);
+  // Modified click handler to prevent click after drag
+  const handleImageClick = (e, image) => {
+    if (!isDragging) {
+      setSelectedImage(image);
+    }
   };
 
-  // Close modal
   const closeModal = () => {
     setSelectedImage(null);
   };
@@ -104,24 +163,35 @@ const Gallery = ({ images }) => {
           <h2 className="text-4xl font-bold text-gray-800 mb-4">
             A Glimpse Into School Life
           </h2>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Hover to pause the infinite scroll and explore our facilities
-          </p>
+         
         </div>
 
         {/* Infinite Scroll Gallery */}
         <div className="relative">
-          {/* Gradient overlays for smooth edges */}
-          <div className="absolute left-0 top-0 bottom-0 w-32 bg-linear-to-r from-orange-50 to-transparent z-10 pointer-events-none"></div>
-          <div className="absolute right-0 top-0 bottom-0 w-32 bg-linear-to-l from-orange-50 to-transparent z-10 pointer-events-none"></div>
+          {/* Gradient overlays for smooth edges - responsive width */}
+          <div 
+            className={`absolute left-0 top-0 bottom-0 bg-linear-to-r from-orange-50 to-transparent z-10 pointer-events-none
+              ${isMobile ? 'w-12' : 'w-32'}`}
+          ></div>
+          <div 
+            className={`absolute right-0 top-0 bottom-0 bg-linear-to-l from-orange-50 to-transparent z-10 pointer-events-none
+              ${isMobile ? 'w-12' : 'w-32'}`}
+          ></div>
 
           {/* Scroll Container */}
           <div
             ref={scrollContainerRef}
-            className="overflow-x-auto scrollbar-hide"
+            className="overflow-x-auto scrollbar-hide cursor-grab active:cursor-grabbing"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+            onMouseDown={handleDragStart}
+            onMouseMove={handleDragMove}
+            onMouseUp={handleDragEnd}
+            onMouseLeave={handleDragEnd}
+            onTouchStart={handleDragStart}
+            onTouchMove={handleDragMove}
+            onTouchEnd={handleDragEnd}
           >
-            <div className="flex gap-8 py-8 px-4">
+            <div className="flex gap-8 py-8 px-4 pointer-events-auto">
               {duplicatedImages.map((image, index) => (
                 <div
                   key={`${image.id}-${index}`}
@@ -129,7 +199,7 @@ const Gallery = ({ images }) => {
                   className="flex-none w-100 group cursor-pointer relative"
                   onMouseEnter={() => handleMouseEnter(index)}
                   onMouseLeave={() => handleMouseLeave(index)}
-                  onClick={() => handleImageClick(image)}
+                  onClick={(e) => handleImageClick(e, image)}
                 >
                   <div className="relative rounded-2xl overflow-hidden shadow-lg transform transition-all duration-300 h-80">
                     {/* Image Container - Fixed height with object-cover to fill */}
@@ -137,13 +207,14 @@ const Gallery = ({ images }) => {
                       <img
                         src={image.image}
                         alt={image.title}
-                        className="w-full h-full object-cover"
+                        className="w-full h-full object-cover pointer-events-none"
                         loading="lazy"
+                        draggable="false"
                       />
                     </div>
 
                     {/* Overlay with gradient */}
-                    <div className="absolute inset-0 bg-linear-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                    <div className="absolute inset-0 bg-linear-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
                       <div className="absolute bottom-0 left-0 right-0 p-6 text-white">
                         <div className="flex items-center space-x-2 mb-2">
                           <span className="text-3xl">{image.icon}</span>
@@ -157,7 +228,7 @@ const Gallery = ({ images }) => {
                     </div>
 
                     {/* Category badge when not hovered */}
-                    <div className="absolute top-4 left-4 px-3 py-1.5 bg-white/90 backdrop-blur-sm rounded-full text-sm font-semibold text-gray-700 shadow-lg group-hover:opacity-0 transition-opacity">
+                    <div className="absolute top-4 left-4 px-3 py-1.5 bg-white/90 backdrop-blur-sm rounded-full text-sm font-semibold text-gray-700 shadow-lg group-hover:opacity-0 transition-opacity pointer-events-none">
                       {image.category}
                     </div>
                   </div>
@@ -167,18 +238,7 @@ const Gallery = ({ images }) => {
           </div>
         </div>
 
-        {/* Scroll indicator */}
-        <div className="text-center mt-8 text-gray-500 text-sm">
-          <span className="inline-flex items-center space-x-2">
-            <svg className="w-5 h-5 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path>
-            </svg>
-            <span>Scroll horizontally or hover to pause</span>
-            <svg className="w-5 h-5 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
-            </svg>
-          </span>
-        </div>
+
       </div>
 
       {/* Modal for full-size image */}
